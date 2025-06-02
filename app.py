@@ -76,7 +76,7 @@ with tab3:
     st.markdown("##### 🔝 Top Customers (RFM Score = 444)")
     st.dataframe(top_customers.style.format({'Monetary': '${:,.2f}'}), use_container_width=True)
 
-    st.markdown("##### 🔥 RFM Segment Overview")
+    st.markdown("#####  RFM Segment Overview")
     heatmap_data = rfm.groupby(['R_Score', 'F_Score']).size().reset_index(name='Count')
     fig3 = px.density_heatmap(
         heatmap_data, x='F_Score', y='R_Score', z='Count',
@@ -86,4 +86,4 @@ with tab3:
 
 # Footer
 st.markdown("---")
-st.markdown("Made with ❤️ by **Sourish Das** | [GitHub](https://github.com) | [LinkedIn](https://linkedin.com)")
+st.markdown("Made with by **Sourish Das** | [GitHub](https://github.com) | [LinkedIn](https://linkedin.com)")
