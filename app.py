@@ -1,100 +1,89 @@
 import streamlit as st
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
+import plotly.express as px
 
-# Page config
+# Page settings
 st.set_page_config(page_title="E-Commerce Analytics", layout="wide")
 
-# Load & preprocess
+# Load data
 @st.cache_data
 def load_data():
     df = pd.read_csv("ecommerce_data.csv")
     df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
     df['TotalPrice'] = df['Quantity'] * df['UnitPrice']
-    df = df[df['Quantity'] > 0]
-    df = df[df['TotalPrice'] > 0]
+    df = df[(df['Quantity'] > 0) & (df['TotalPrice'] > 0)]
     return df
 
 df = load_data()
 
-st.title("📊 E-Commerce Analytics Dashboard")
+# Sidebar filters
+st.sidebar.header("🔍 Filters")
+year = st.sidebar.selectbox("Select Year", sorted(df['InvoiceDate'].dt.year.unique()))
+country = st.sidebar.selectbox("Select Country", sorted(df['Country'].unique()))
 
-# ======================
-#  METRIC CARDS SECTION
-# ======================
-col1, col2, col3, col4 = st.columns(4)
-total_revenue = round(df['TotalPrice'].sum(), 2)
-total_orders = df['InvoiceNo'].nunique()
-total_customers = df['CustomerID'].nunique()
-top_country = df.groupby('Country')['TotalPrice'].sum().idxmax()
+df_filtered = df[(df['InvoiceDate'].dt.year == year) & (df['Country'] == country)]
 
-col1.metric("💰 Total Revenue", f"${total_revenue:,.2f}")
-col2.metric("🧾 Total Orders", total_orders)
-col3.metric("🧍 Unique Customers", total_customers)
-col4.metric("🌍 Top Country", top_country)
+# Title
+st.title("📊 E-Commerce Dashboard")
+st.markdown(f"### Year: {year} | Country: {country}")
 
-# =========================
-#  TABS FOR NAVIGATION
-# =========================
-tab1, tab2, tab3 = st.tabs(["📈 Sales Analysis", "🛒 Top Products", "👥 RFM Segmentation"])
+# KPI cards
+col1, col2, col3 = st.columns(3)
+col1.metric("💰 Revenue", f"${df_filtered['TotalPrice'].sum():,.2f}")
+col2.metric("🧾 Orders", df_filtered['InvoiceNo'].nunique())
+col3.metric("👥 Customers", df_filtered['CustomerID'].nunique())
 
-# ======================
-#  TAB 1: SALES ANALYSIS
-# ======================
+# Tabs
+tab1, tab2, tab3 = st.tabs(["📈 Sales Trends", "🏆 Top Products", "🧠 RFM Segmentation"])
+
+# Tab 1: Sales Trends
 with tab1:
     st.subheader("Monthly Revenue")
-    df['Month'] = df['InvoiceDate'].dt.to_period('M')
-    monthly_revenue = df.groupby('Month')['TotalPrice'].sum()
-    st.line_chart(monthly_revenue.astype(float))
+    df_filtered['Month'] = df_filtered['InvoiceDate'].dt.to_period("M").astype(str)
+    revenue_monthly = df_filtered.groupby('Month')['TotalPrice'].sum().reset_index()
 
-    st.subheader("Revenue by Country")
-    country_revenue = df.groupby('Country')['TotalPrice'].sum().sort_values(ascending=False).head(10)
-    fig, ax = plt.subplots()
-    sns.barplot(x=country_revenue.values, y=country_revenue.index, palette="viridis", ax=ax)
-    ax.set_xlabel("Revenue")
-    ax.set_ylabel("Country")
-    st.pyplot(fig)
+    fig1 = px.line(revenue_monthly, x="Month", y="TotalPrice", markers=True,
+                   labels={"TotalPrice": "Revenue"}, template="plotly_dark")
+    st.plotly_chart(fig1, use_container_width=True)
 
-# ======================
-#  TAB 2: TOP PRODUCTS
-# ======================
+# Tab 2: Top Products
 with tab2:
-    st.subheader("Top 10 Products by Quantity Sold")
-    top_products = df.groupby('Description')['Quantity'].sum().sort_values(ascending=False).head(10)
-    fig, ax = plt.subplots()
-    sns.barplot(x=top_products.values, y=top_products.index, palette="mako", ax=ax)
-    ax.set_xlabel("Quantity Sold")
-    st.pyplot(fig)
+    st.subheader("Top 10 Products")
+    top_products = df_filtered.groupby('Description')['Quantity'].sum().nlargest(10).reset_index()
 
-# ======================
-#  TAB 3: RFM SEGMENTATION
-# ======================
+    fig2 = px.bar(top_products, x='Quantity', y='Description', orientation='h',
+                  title="Best-Selling Products", color='Quantity',
+                  template="plotly_dark")
+    st.plotly_chart(fig2, use_container_width=True)
+
+# Tab 3: RFM Segmentation
 with tab3:
-    st.subheader("RFM Segmentation of Customers")
+    st.subheader("Customer Segmentation (RFM)")
 
-    ref_date = df['InvoiceDate'].max() + pd.Timedelta(days=1)
-    rfm = df.groupby('CustomerID').agg({
-        'InvoiceDate': lambda x: (ref_date - x.max()).days,
+    snapshot_date = df_filtered['InvoiceDate'].max() + pd.Timedelta(days=1)
+    rfm = df_filtered.groupby('CustomerID').agg({
+        'InvoiceDate': lambda x: (snapshot_date - x.max()).days,
         'InvoiceNo': 'nunique',
         'TotalPrice': 'sum'
-    }).rename(columns={
-        'InvoiceDate': 'Recency',
-        'InvoiceNo': 'Frequency',
-        'TotalPrice': 'Monetary'
-    })
+    }).rename(columns={'InvoiceDate': 'Recency', 'InvoiceNo': 'Frequency', 'TotalPrice': 'Monetary'})
 
-    rfm['R_Quartile'] = pd.qcut(rfm['Recency'], 4, labels=[4, 3, 2, 1])
-    rfm['F_Quartile'] = pd.qcut(rfm['Frequency'], 4, labels=[1, 2, 3, 4])
-    rfm['M_Quartile'] = pd.qcut(rfm['Monetary'], 4, labels=[1, 2, 3, 4])
-    rfm['RFM_Score'] = rfm['R_Quartile'].astype(str) + rfm['F_Quartile'].astype(str) + rfm['M_Quartile'].astype(str)
+    rfm['R_Score'] = pd.qcut(rfm['Recency'], 4, labels=[4, 3, 2, 1])
+    rfm['F_Score'] = pd.qcut(rfm['Frequency'], 4, labels=[1, 2, 3, 4])
+    rfm['M_Score'] = pd.qcut(rfm['Monetary'], 4, labels=[1, 2, 3, 4])
+    rfm['RFM_Score'] = rfm['R_Score'].astype(str) + rfm['F_Score'].astype(str) + rfm['M_Score'].astype(str)
 
-    st.write("🔝 Top Customers (RFM Score = 444)")
-    st.dataframe(rfm[rfm['RFM_Score'] == '444'].sort_values(by='Monetary', ascending=False).head(10))
+    top_customers = rfm[rfm['RFM_Score'] == '444'].sort_values('Monetary', ascending=False).head(10)
+    st.markdown("##### 🔝 Top Customers (RFM Score = 444)")
+    st.dataframe(top_customers.style.format({'Monetary': '${:,.2f}'}), use_container_width=True)
 
-    st.write("📊 RFM Segment Heatmap")
-    rfm_counts = rfm.groupby(['R_Quartile', 'F_Quartile']).size().unstack()
+    st.markdown("##### 🔥 RFM Segment Overview")
+    heatmap_data = rfm.groupby(['R_Score', 'F_Score']).size().reset_index(name='Count')
+    fig3 = px.density_heatmap(
+        heatmap_data, x='F_Score', y='R_Score', z='Count',
+        color_continuous_scale='Blues', template="plotly_dark"
+    )
+    st.plotly_chart(fig3, use_container_width=True)
 
-    fig2, ax2 = plt.subplots()
-    sns.heatmap(rfm_counts, annot=True, fmt="d", cmap="YlGnBu", ax=ax2)
-    st.pyplot(fig2)
+# Footer
+st.markdown("---")
+st.markdown("Made with ❤️ by **Sourish Das** | [GitHub](https://github.com) | [LinkedIn](https://linkedin.com)")
