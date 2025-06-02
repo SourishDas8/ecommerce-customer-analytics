@@ -3,10 +3,10 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="E-Commerce Analytics Dashboard", layout="wide")
+# Page config
+st.set_page_config(page_title="E-Commerce Analytics", layout="wide")
 
-st.title("🛒 E-Commerce Customer Purchase Behavior Analysis")
-
+# Load & preprocess
 @st.cache_data
 def load_data():
     df = pd.read_csv("ecommerce_data.csv")
@@ -18,51 +18,83 @@ def load_data():
 
 df = load_data()
 
-st.header("Dataset Overview")
-st.write(f"Number of records: {df.shape[0]}")
-st.write("Missing values:")
-st.write(df.isnull().sum())
+st.title("📊 E-Commerce Analytics Dashboard")
 
-st.header("Revenue by Country")
-country_revenue = df.groupby('Country')['TotalPrice'].sum().sort_values(ascending=False)
-st.bar_chart(country_revenue)
+# ======================
+#  METRIC CARDS SECTION
+# ======================
+col1, col2, col3, col4 = st.columns(4)
+total_revenue = round(df['TotalPrice'].sum(), 2)
+total_orders = df['InvoiceNo'].nunique()
+total_customers = df['CustomerID'].nunique()
+top_country = df.groupby('Country')['TotalPrice'].sum().idxmax()
 
-st.header("Monthly Revenue Trend")
-df['Month'] = df['InvoiceDate'].dt.to_period('M')
-monthly_revenue = df.groupby('Month')['TotalPrice'].sum()
-st.line_chart(monthly_revenue.astype(float))
+col1.metric("💰 Total Revenue", f"${total_revenue:,.2f}")
+col2.metric("🧾 Total Orders", total_orders)
+col3.metric("🧍 Unique Customers", total_customers)
+col4.metric("🌍 Top Country", top_country)
 
-st.header("Top 10 Products Sold by Quantity")
-top_products = df.groupby('Description')['Quantity'].sum().sort_values(ascending=False).head(10)
-st.bar_chart(top_products)
+# =========================
+#  TABS FOR NAVIGATION
+# =========================
+tab1, tab2, tab3 = st.tabs(["📈 Sales Analysis", "🛒 Top Products", "👥 RFM Segmentation"])
 
-st.header("RFM Customer Segmentation")
+# ======================
+#  TAB 1: SALES ANALYSIS
+# ======================
+with tab1:
+    st.subheader("Monthly Revenue")
+    df['Month'] = df['InvoiceDate'].dt.to_period('M')
+    monthly_revenue = df.groupby('Month')['TotalPrice'].sum()
+    st.line_chart(monthly_revenue.astype(float))
 
-ref_date = df['InvoiceDate'].max() + pd.Timedelta(days=1)
-rfm = df.groupby('CustomerID').agg({
-    'InvoiceDate': lambda x: (ref_date - x.max()).days,
-    'InvoiceNo': 'nunique',
-    'TotalPrice': 'sum'
-}).rename(columns={
-    'InvoiceDate': 'Recency',
-    'InvoiceNo': 'Frequency',
-    'TotalPrice': 'Monetary'
-})
+    st.subheader("Revenue by Country")
+    country_revenue = df.groupby('Country')['TotalPrice'].sum().sort_values(ascending=False).head(10)
+    fig, ax = plt.subplots()
+    sns.barplot(x=country_revenue.values, y=country_revenue.index, palette="viridis", ax=ax)
+    ax.set_xlabel("Revenue")
+    ax.set_ylabel("Country")
+    st.pyplot(fig)
 
-rfm['R_Quartile'] = pd.qcut(rfm['Recency'], 4, labels=[4,3,2,1])
-rfm['F_Quartile'] = pd.qcut(rfm['Frequency'], 4, labels=[1,2,3,4])
-rfm['M_Quartile'] = pd.qcut(rfm['Monetary'], 4, labels=[1,2,3,4])
-rfm['RFM_Score'] = rfm['R_Quartile'].astype(str) + rfm['F_Quartile'].astype(str) + rfm['M_Quartile'].astype(str)
+# ======================
+#  TAB 2: TOP PRODUCTS
+# ======================
+with tab2:
+    st.subheader("Top 10 Products by Quantity Sold")
+    top_products = df.groupby('Description')['Quantity'].sum().sort_values(ascending=False).head(10)
+    fig, ax = plt.subplots()
+    sns.barplot(x=top_products.values, y=top_products.index, palette="mako", ax=ax)
+    ax.set_xlabel("Quantity Sold")
+    st.pyplot(fig)
 
-st.write("Top Customers (RFM Score = 444):")
-st.dataframe(rfm[rfm['RFM_Score'] == '444'].head())
+# ======================
+#  TAB 3: RFM SEGMENTATION
+# ======================
+with tab3:
+    st.subheader("RFM Segmentation of Customers")
 
-st.write("Heatmap of RFM Segments:")
-import seaborn as sns
-import matplotlib.pyplot as plt
+    ref_date = df['InvoiceDate'].max() + pd.Timedelta(days=1)
+    rfm = df.groupby('CustomerID').agg({
+        'InvoiceDate': lambda x: (ref_date - x.max()).days,
+        'InvoiceNo': 'nunique',
+        'TotalPrice': 'sum'
+    }).rename(columns={
+        'InvoiceDate': 'Recency',
+        'InvoiceNo': 'Frequency',
+        'TotalPrice': 'Monetary'
+    })
 
-rfm_counts = rfm.groupby(['R_Quartile', 'F_Quartile']).size().unstack()
+    rfm['R_Quartile'] = pd.qcut(rfm['Recency'], 4, labels=[4, 3, 2, 1])
+    rfm['F_Quartile'] = pd.qcut(rfm['Frequency'], 4, labels=[1, 2, 3, 4])
+    rfm['M_Quartile'] = pd.qcut(rfm['Monetary'], 4, labels=[1, 2, 3, 4])
+    rfm['RFM_Score'] = rfm['R_Quartile'].astype(str) + rfm['F_Quartile'].astype(str) + rfm['M_Quartile'].astype(str)
 
-fig, ax = plt.subplots(figsize=(8,5))
-sns.heatmap(rfm_counts, annot=True, fmt="d", cmap="Blues", ax=ax)
-st.pyplot(fig)
+    st.write("🔝 Top Customers (RFM Score = 444)")
+    st.dataframe(rfm[rfm['RFM_Score'] == '444'].sort_values(by='Monetary', ascending=False).head(10))
+
+    st.write("📊 RFM Segment Heatmap")
+    rfm_counts = rfm.groupby(['R_Quartile', 'F_Quartile']).size().unstack()
+
+    fig2, ax2 = plt.subplots()
+    sns.heatmap(rfm_counts, annot=True, fmt="d", cmap="YlGnBu", ax=ax2)
+    st.pyplot(fig2)
